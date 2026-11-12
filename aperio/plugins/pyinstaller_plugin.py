@@ -96,8 +96,11 @@ class PyInstallerPlugin(DecompilerPlugin):
             return self.failure(res, timeout)
         extracted = next((d for d in out_dir.iterdir()
                           if d.is_dir() and d.name.endswith("_extracted")), None)
-        if not extracted:
-            return PluginResult(False, error="extractor produced no *_extracted folder",
+        # pyinstxtractor exits 0 even for an empty/corrupt CArchive ("Found 0 files")
+        if not extracted or not any(p.is_file() for p in extracted.rglob("*")):
+            m = re.search(r"Found (\d+) files in CArchive", res.stdout)
+            detail = f" (extractor reported {m.group(1)} files in CArchive)" if m else ""
+            return PluginResult(False, error="extractor produced no files" + detail,
                                 commands=[res.command], stdout=res.stdout, stderr=res.stderr)
         commands, notes = [res.command], []
         entries = [extracted / m for m in _ENTRY_RE.findall(res.stdout)]

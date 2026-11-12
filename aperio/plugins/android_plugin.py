@@ -58,9 +58,15 @@ class AndroidPlugin(DecompilerPlugin):
                         timeout, cancel_event, log)
         if res.cancelled or res.timed_out:
             return self.failure(res, timeout)
-        produced = self.has_output(out_dir / "sources") or self.has_output(out_dir)
-        if res.returncode != 0 and not produced:
-            return self.failure(res, timeout)
+        # jadx exits 0 even when it decompiled nothing ("No classes to decompile"),
+        # so success requires real Java sources.
+        if not any((out_dir / "sources").rglob("*.java")):
+            fail = self.failure(res, timeout)
+            fail.error = "jadx produced no Java sources. " + (
+                "No classes to decompile (invalid or empty DEX). "
+                if "No classes to decompile" in res.stdout + res.stderr else "") + fail.error
+            fail.output_path = out_dir if self.has_output(out_dir) else None
+            return fail
         notes = "" if res.returncode == 0 else "jadx finished with errors in some classes"
         return PluginResult(True, output_path=out_dir, commands=[res.command],
                             stdout=res.stdout, stderr=res.stderr, notes=notes)

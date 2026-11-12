@@ -98,15 +98,22 @@ Tool lookup order: `./tools_bin` (including `tools_bin/*/bin` and
 ```powershell
 python -m unittest discover -s tests -v     # detector, process-tree kill, dispatcher
 python tests\create_samples.py              # build real/synthetic samples, run core + CLI end-to-end
+python tests\create_samples.py --pyinstaller path\to\pyinstaller.exe   # + a real one-file PyInstaller sample
 ```
+
+Samples and outputs go to `%TEMP%\aperio_e2e`, outside the repo. Electron-based
+editors that index the project folder hold `*.asar` files open, so samples kept
+in the repo could not be deleted between runs.
 
 ## Verification summary
 
 Host: Windows 11, Python 3.14.7, PySide6 6.12.0, OpenJDK 17 (`java`, `javac`, `jar`),
-Node 26 / npx 11, .NET 10 runtime (**no SDK**). Not installed: Ghidra, CFR, jadx,
-ilspycmd, pycdc, pyinstxtractor(-ng), Go, C compiler.
+Node 26 / npx 11, .NET 10 runtime (**no SDK**). `--setup` was run and installed CFR 0.152,
+jadx 1.5.1 and pyinstxtractor.py into `./tools_bin`. PyInstaller 6.22.3 was installed
+in a throwaway venv, only to build a test sample. Not installed: Ghidra, ilspycmd,
+pycdc, Go, C compiler.
 
-**Tested live (all passing, 27 unit tests + 26-sample end-to-end harness):**
+**Tested live (all passing, 27 unit tests + 27-sample end-to-end harness):**
 
 | Area | Evidence |
 |---|---|
@@ -119,12 +126,19 @@ ilspycmd, pycdc, pyinstxtractor(-ng), Go, C compiler.
 | Cancel All | 2 in-flight tasks become `Failed (Cancelled)` and 6 queued ones become `Skipped (Cancelled)`, all within seconds. |
 | Electron stub rule | the stub exe, `ffmpeg.dll`, `d3dcompiler_47.dll` and `libEGL.dll` are skipped. Unrelated natives are not, and neither is an explicitly targeted single file. |
 | ASAR pipeline | **real extraction** with `npx --yes @electron/asar` (v4.3.1). The extracted `main.js` content is verified. |
+| `--setup` | downloaded the CFR jar, the jadx zip (extracted with a zip-slip check) and pyinstxtractor.py. `--doctor` then reports each as OK, with versions. |
+| CFR pipeline | **real decompilation** of a `javac`-built `.class`, a `jar`-built JAR, and the `.class` disguised as `.png`. `Hello.greet()` is verified in the output each time. |
+| PyInstaller pipeline | a **real** PyInstaller 6.22.3 one-file exe is detected by its CArchive cookie, and pyinstxtractor extracts its `fib.pyc` entry point. Stage 2 (pycdc) is reported as skipped. |
+| jadx plugin | **real run** through `jadx.bat`, decompiling `Hello.class` to `Hello.java`. The synthetic DEX/APK samples correctly come out `Failed`, because jadx reports "No classes to decompile". |
+| Output validation | jadx and pyinstxtractor exit 0 even when they did nothing. Those plugins now require real output (Java sources, extracted files), so they no longer report a false success. |
 | CLI | `--doctor`, the one-time first-run notice, scanning a directory or a single file, `REPORT.md` contents, and the exit code for a missing target. |
 | GUI | offscreen test of the real `MainWindow`: a 44-file batch, progress reaching 44/44, the status and format filters, inspector metadata, and the doctor dialog filled in from a worker thread. **The worst GUI event-loop stall was about 18 ms.** |
 
 **Needs external tools not installed on the host (code paths written, not run live):**
 
-* CFR, jadx, ilspycmd, pycdc and pyinstxtractor runs. On this host they are detected correctly and reported as `Skipped (Missing Tool: …)`. `python aperio.py --setup` downloads CFR, jadx and pyinstxtractor.py; the download code itself has not been run here.
+* ilspycmd (needs a .NET SDK) and pycdc (needs a C++ toolchain). Their files are detected correctly and reported as `Skipped (Missing Tool: …)`.
+* jadx on a real APK/DEX. No `d8` or Android SDK was available to build one, so jadx was run live only on JVM bytecode.
+* `pyinstxtractor-ng`. The bundled-download `pyinstxtractor.py` path was the one tested.
 * Ghidra `analyzeHeadless` and `scripts/ExportDecompiled.java`. The script has not been compiled against a Ghidra install. Recent Ghidra releases also need JDK 21, and this host has JDK 17.
 * Compiling C# samples: `create_samples.py` builds `Greeter.dll` only when a .NET SDK is present. Without one it uses a real runtime assembly copied from the installed .NET runtime.
 * POSIX `os.killpg` path: written, but only the Windows `taskkill /T` path was run.

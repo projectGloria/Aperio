@@ -1,6 +1,6 @@
 """End-to-end harness: build real sample binaries, run Aperio, verify results.
 
-    python tests/create_samples.py                  # build into ./samples, run CLI + core, verify
+    python tests/create_samples.py                  # build into %TEMP%/aperio_e2e, run CLI + core, verify
     python tests/create_samples.py --dir D --no-run # only build samples
 
 Real artefacts are compiled when the compilers exist (javac/jar -> .class/.jar,
@@ -48,7 +48,7 @@ def _run(cmd, cwd=None) -> bool:
         return False
 
 
-def build(root: Path) -> dict[str, str]:
+def build(root: Path, pyinstaller: str | None = None) -> dict[str, str]:
     """Create samples; returns {relative path: expected plugin name or None}."""
     if root.exists():
         shutil.rmtree(root)
@@ -97,9 +97,17 @@ def build(root: Path) -> dict[str, str]:
     py_compile.compile(str(tmp / "fib.py"), cfile=str(root / "python" / "fib.pyc"))
     shutil.copy(root / "python" / "fib.pyc", root / "python" / "renamed.exe")
     exp["python/fib.pyc"] = exp["python/renamed.exe"] = "pycdc"
+    # real PyInstaller one-file executable (only when a pyinstaller binary is supplied)
+    if pyinstaller and _run([pyinstaller, "--onefile", "--noconfirm", "--log-level", "ERROR",
+                             "--distpath", str(tmp / "dist"), "--workpath", str(tmp / "work"),
+                             "--specpath", str(tmp), str(tmp / "fib.py")]):
+        exe = next((tmp / "dist").glob("fib*"))
+        (root / "native").mkdir(exist_ok=True)
+        shutil.copy(exe, root / "native" / "real_pyinstaller.exe")
+        exp["native/real_pyinstaller.exe"] = "PyInstaller"
 
     # ---- Native family (synthetic + real host python.exe) --------------
-    (root / "native").mkdir()
+    (root / "native").mkdir(exist_ok=True)
     shutil.copy(Path(sys.executable).resolve(), root / "native" / "host_python.exe")
     exp["native/host_python.exe"] = "Ghidra"
     for name, data, plug in [
@@ -180,17 +188,52 @@ def verify(tasks, exp: dict, label: str) -> list[str]:
             errors.append("asar extraction output missing main.js")
         else:
             print("  [PASS] asar extraction produced main.js with expected content")
+    for rel in ("java/Hello.class", "java/hello.jar", "java/logo.png"):
+        t = by_rel.get(rel)
+        if t and t.status.value == "Success":
+            src = next(t.out_dir.rglob("Hello.java"), None)
+            if not src or "greet()" not in src.read_text(errors="replace"):
+                errors.append(f"{rel}: CFR output lacks Hello.greet()")
+            else:
+                print(f"  [PASS] CFR reconstructed Hello.greet() from {rel}")
+    pyi = by_rel.get("native/real_pyinstaller.exe")
+    if pyi and pyi.status.value == "Success":
+        if not any(pyi.out_dir.rglob("fib.pyc")):
+            errors.append("real PyInstaller exe: entry point fib.pyc not extracted")
+        else:
+            print("  [PASS] pyinstxtractor extracted entry point fib.pyc from a real PyInstaller exe")
+    return errors
+
+
+def live_plugin_checks(samples: Path, out: Path) -> list[str]:
+    """Run plugins directly where routing alone cannot exercise them live."""
+    import threading
+    from aperio.plugins.android_plugin import AndroidPlugin
+    errors = []
+    cls = samples / "java" / "Hello.class"
+    plugin = AndroidPlugin()
+    if cls.is_file() and plugin.is_available()[0]:
+        res = plugin.run(cls, out / "jadx_direct", 300, threading.Event())
+        src = next((out / "jadx_direct").rglob("Hello.java"), None)
+        if res.success and src and "greet" in src.read_text(errors="replace"):
+            print("  [PASS] jadx (direct) decompiled Hello.class -> Hello.java")
+        else:
+            errors.append(f"jadx direct run failed: {res.error}")
     return errors
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--dir", type=Path, default=ROOT / "samples")
-    ap.add_argument("--out", type=Path, default=ROOT / "samples_out")
+    # default outside the repo: editors/IDEs built on Electron lock *.asar files they index
+    tmp_root = Path(tempfile.gettempdir()) / "aperio_e2e"
+    ap.add_argument("--dir", type=Path, default=tmp_root / "samples")
+    ap.add_argument("--out", type=Path, default=tmp_root / "samples_out")
     ap.add_argument("--no-run", action="store_true")
     ap.add_argument("--skip-native", action="store_true", default=False)
+    ap.add_argument("--pyinstaller", default=shutil.which("pyinstaller"),
+                    help="pyinstaller executable used to build a real one-file sample")
     args = ap.parse_args()
-    exp = build(args.dir)
+    exp = build(args.dir, args.pyinstaller)
     print(f"Built {len(exp)} samples in {args.dir}")
     if args.no_run:
         return 0
@@ -205,6 +248,7 @@ def main() -> int:
     errors += verify(d.tasks, exp, "core")
     if not (core_out / "REPORT.md").is_file():
         errors.append("core: REPORT.md missing")
+    errors += live_plugin_checks(args.dir, args.out)
 
     print("\n== CLI (subprocess: python aperio.py <dir> --out ...) ==")
     cli_out = args.out / "cli"
