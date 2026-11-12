@@ -8,15 +8,57 @@ killed or concurrent run never leaves a locked .gpr behind.
 from __future__ import annotations
 
 import os
+import re
+import shutil
 import tempfile
 import threading
 from pathlib import Path
 
 from ..config import SCRIPTS_DIR
 from ..core import detector, toolchain
+from ..core.procutil import IS_WINDOWS
 from .base import DecompilerPlugin, LogFn, PluginResult
 
 POST_SCRIPT = "ExportDecompiled.java"
+
+# Ghidra's launch.bat walks its arguments inside an `IF DEFINED ARG ( ... )`
+# block that also contains unquoted `set X=%~1` lines. cmd.exe substitutes
+# %~1 into the whole block before running it, so a ")" in any argument (such
+# as "C:\Program Files (x86)\...") ends the block early, and cmd fails with
+# "... was unexpected at this time". "!" is eaten by delayed expansion and
+# "%" / "^" are expanded too. Quoting cannot fix this, so paths that contain
+# these characters are copied to a safe temp location instead.
+_LAUNCHER_UNSAFE = re.compile(r"[()!%^&<>|\"]")
+
+
+def _is_launcher_safe(p: Path) -> bool:
+    return not (IS_WINDOWS and _LAUNCHER_UNSAFE.search(str(p)))
+
+
+def _launcher_safe(file_path: Path, stage_dir: Path, log: LogFn | None) -> Path:
+    """Return `file_path`, or a hardlink/copy of it under `stage_dir` when the
+    path would break analyzeHeadless.bat / launch.bat."""
+    if _is_launcher_safe(file_path):
+        return file_path
+    stage_dir.mkdir(parents=True, exist_ok=True)
+    name = re.sub(r"[^A-Za-z0-9._-]", "_", file_path.name) or "input.bin"
+    staged = stage_dir / name
+    if not _is_launcher_safe(staged):
+        raise OSError(f"temp dir {stage_dir} itself is not safe for cmd.exe")
+    try:
+        os.link(file_path, staged)
+    except OSError:
+        shutil.copy2(file_path, staged)
+    if log:
+        log("info", f"staged {file_path} -> {staged} (path unsafe for Ghidra's .bat launcher)")
+    return staged
+
+
+def _stage_dir(src: Path, dst: Path) -> Path:
+    shutil.copytree(src, dst)
+    if not _is_launcher_safe(dst):
+        raise OSError(f"temp dir {dst} itself is not safe for cmd.exe")
+    return dst
 
 
 def ghidra_version() -> str:
@@ -72,14 +114,27 @@ class GhidraPlugin(DecompilerPlugin):
         out_dir.mkdir(parents=True, exist_ok=True)
         out_c = out_dir / f"{file_path.name}.c"
         with tempfile.TemporaryDirectory(prefix="aperio_ghidra_",
-                                         ignore_cleanup_errors=True) as proj_dir:
-            cmd = [str(headless), proj_dir, f"aperio_{os.getpid()}",
-                   "-import", str(file_path),
-                   "-scriptPath", str(SCRIPTS_DIR),
-                   "-postScript", POST_SCRIPT, str(out_c),
+                                         ignore_cleanup_errors=True) as tmp:
+            work = Path(tmp)
+            proj_dir = work / "proj"
+            proj_dir.mkdir()
+            try:
+                src = _launcher_safe(file_path, work / "in", log)
+                scripts = (SCRIPTS_DIR if _is_launcher_safe(SCRIPTS_DIR)
+                           else _stage_dir(SCRIPTS_DIR, work / "scripts"))
+            except OSError as exc:
+                return PluginResult(False, error=f"could not stage input for Ghidra: {exc}")
+            # The post-script writes to a safe temp path; it is moved afterwards.
+            tmp_c = out_c if _is_launcher_safe(out_c) else work / "out.c"
+            cmd = [str(headless), str(proj_dir), f"aperio_{os.getpid()}",
+                   "-import", str(src),
+                   "-scriptPath", str(scripts),
+                   "-postScript", POST_SCRIPT, str(tmp_c),
                    "-analysisTimeoutPerFile", str(max(60, int(timeout * 0.8))),
                    "-deleteProject"]
             res = self.exec(cmd, timeout, cancel_event, log)
+            if tmp_c != out_c and tmp_c.is_file():
+                shutil.move(str(tmp_c), out_c)
         if res.cancelled or res.timed_out:
             return self.failure(res, timeout)
         if not out_c.is_file() or out_c.stat().st_size == 0:
