@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+tools_bin/
+samples/
+samples_out/
+aperio_out/
+*.part
