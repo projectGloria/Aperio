@@ -7,9 +7,6 @@ from pathlib import Path
 from ..core import detector, toolchain
 from .base import DecompilerPlugin, LogFn, PluginResult
 
-CFR_VERSION = "0.152"
-CFR_URL = (f"https://github.com/leibnitz27/cfr/releases/download/{CFR_VERSION}/"
-           f"cfr-{CFR_VERSION}.jar")
 
 
 def _cfr_cmd() -> list[str] | None:
@@ -42,8 +39,7 @@ class JavaPlugin(DecompilerPlugin):
         return False, "cfr.jar not found in ./tools_bin (or $CFR_JAR)"
 
     def install_hint(self) -> str:
-        return (f"python aperio.py --setup  (downloads cfr-{CFR_VERSION}.jar into ./tools_bin; "
-                f"needs Java: winget install EclipseAdoptium.Temurin.21.JDK)")
+        return "python aperio.py --setup  (portable CFR + JDK 25 into ./tools_bin)"
 
     def version(self) -> str:
         jar = toolchain.find_file("cfr*.jar", env_var="CFR_JAR")

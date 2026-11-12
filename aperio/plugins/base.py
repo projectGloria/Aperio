@@ -7,7 +7,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Callable, Sequence
 
-from ..core import procutil
+from ..core import procutil, toolchain
 from ..core.detector import FileInfo, analyze
 from ..core.models import PluginResult
 
@@ -68,7 +68,7 @@ class DecompilerPlugin(ABC):
     def exec(cmd: Sequence[str | Path], timeout: float, cancel_event: threading.Event,
              log: LogFn | None, cwd: Path | None = None) -> procutil.ProcResult:
         return procutil.run(cmd, timeout=timeout, cancel_event=cancel_event,
-                            cwd=cwd, on_line=log)
+                            cwd=cwd, on_line=log, env=toolchain.tool_env())
 
     @staticmethod
     def failure(res: procutil.ProcResult, timeout: float) -> PluginResult:

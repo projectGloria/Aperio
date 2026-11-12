@@ -15,8 +15,6 @@ from ..core import detector, procutil, toolchain
 from .base import Deadline, DecompilerPlugin, LogFn, PluginResult
 from .pyc_plugin import PYCDC_HINT, find_pycdc, run_pycdc
 
-PYINSTXTRACTOR_URL = ("https://raw.githubusercontent.com/extremecoders-re/pyinstxtractor/"
-                      "master/pyinstxtractor.py")
 _BOOTSTRAP_PREFIXES = ("pyiboot", "pyimod", "pyi_rth_", "pyi_", "_pyi_")
 _ENTRY_RE = re.compile(r"Possible entry point:\s*(.+?)\s*$", re.M)
 MAX_ENTRY_POINTS = 50
@@ -76,8 +74,7 @@ class PyInstallerPlugin(DecompilerPlugin):
         return True, " ".join(cmd) + (f" + {pycdc}" if pycdc else " (pycdc missing: extract only)")
 
     def install_hint(self) -> str:
-        return ("pip install pyinstxtractor-ng   (or: python aperio.py --setup to fetch "
-                "pyinstxtractor.py)  +  pycdc for stage 2: " + PYCDC_HINT)
+        return "python aperio.py --setup  (pyinstxtractor.py + pycdc into ./tools_bin)"
 
     def describe(self, info) -> str:
         n = info.native or {}

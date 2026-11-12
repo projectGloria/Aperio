@@ -7,10 +7,8 @@ from pathlib import Path
 from ..core import detector, toolchain
 from .base import DecompilerPlugin, LogFn, PluginResult
 
-PYCDC_HINT = ("pycdc has no official binaries. Build it: git clone https://github.com/zrax/pycdc "
-              "&& cmake -S pycdc -B pycdc/build && cmake --build pycdc/build --config Release, "
-              "then copy pycdc(.exe) into ./tools_bin (needs: winget install Kitware.CMake "
-              "and a C++ compiler, e.g. winget install Microsoft.VisualStudio.2022.BuildTools)")
+PYCDC_HINT = ("python aperio.py --setup  (builds pycdc from source into ./tools_bin with a "
+              "temporary portable Zig compiler; no CMake / Visual Studio needed)")
 
 
 def find_pycdc() -> Path | None:
@@ -44,6 +42,7 @@ def run_pycdc(plugin: DecompilerPlugin, pycdc: Path, src: Path, dst: Path, timeo
 class PycPlugin(DecompilerPlugin):
     priority = 60
     name = "pycdc"
+    portable = True
 
     def detect(self, file_path: Path, header_bytes: bytes) -> bool:
         return detector.pyc_info(header_bytes) is not None

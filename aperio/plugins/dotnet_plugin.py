@@ -11,6 +11,7 @@ from .base import DecompilerPlugin, LogFn, PluginResult
 class DotNetPlugin(DecompilerPlugin):
     priority = 30
     name = "ILSpy"
+    portable = True
 
     def detect(self, file_path: Path, header_bytes: bytes) -> bool:
         if header_bytes[:2] != b"MZ":
@@ -22,8 +23,8 @@ class DotNetPlugin(DecompilerPlugin):
         return (True, str(p)) if p else (False, "ilspycmd not found")
 
     def install_hint(self) -> str:
-        return ("winget install Microsoft.DotNet.SDK.8  then  "
-                "dotnet tool install -g ilspycmd   (adds %USERPROFILE%\\.dotnet\\tools to PATH)")
+        return ("python aperio.py --setup  (self-contained ilspycmd into ./tools_bin; "
+                "no .NET runtime needed)")
 
     def version(self) -> str:
         p = toolchain.which("ilspycmd")

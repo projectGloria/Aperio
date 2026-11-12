@@ -20,7 +20,7 @@ python aperio.py                                            # Desktop GUI
 python aperio.py --ui                                       # Desktop GUI (explicit)
 python aperio.py <file-or-dir> [--out ./output] [--jobs 4]  # headless CLI
 python aperio.py --doctor                                   # toolchain health table
-python aperio.py --setup                                    # download portable tools + print install commands
+python aperio.py --setup                                    # install every tool + runtime into ./tools_bin
 ```
 
 Extra CLI options: `--timeout SECONDS` (per task, default 900), `--heavy-jobs {1,2}`
@@ -47,51 +47,42 @@ file, plus `<out>/REPORT.md` (summary by status and reason, plus a per-file tabl
 When a folder contains `resources/app.asar`, the Electron stub `.exe` and the
 Chromium runtime DLLs next to it are marked `SKIPPED (Electron Runtime Stub)`.
 
-## Windows setup (exact steps)
+## Setup (standalone)
 
-Run these in PowerShell. Each tool is optional; files whose tool is missing are
-reported as `SKIPPED (Missing Tool: <name>)`, and the install hint is printed once.
+Aperio needs only Python 3.11+ (and PySide6 for the GUI). Everything else,
+including the runtimes, is installed into `./tools_bin` by one command, so no
+system Java, Node.js, .NET, CMake or C++ compiler is required:
 
 ```powershell
-# 1. Python 3.11+ and the GUI toolkit
-winget install Python.Python.3.12
-pip install PySide6
-
-# 2. Java (CFR, jadx, Ghidra). Ghidra 11.2+ needs JDK 21.
-winget install EclipseAdoptium.Temurin.21.JDK
-
-# 3. Portable tools -> .\tools_bin (CFR jar, jadx, pyinstxtractor.py)
-python aperio.py --setup
-
-# 4. .NET decompiler
-winget install Microsoft.DotNet.SDK.8
-dotnet tool install -g ilspycmd          # adds %USERPROFILE%\.dotnet\tools to PATH (restart the shell)
-
-# 5. Electron archives (npx fetches @electron/asar on first use)
-winget install OpenJS.NodeJS.LTS
-npm install -g @electron/asar            # optional; npx works without it
-
-# 6. PyInstaller extraction (alternative to the bundled-download pyinstxtractor.py)
-pip install pyinstxtractor-ng
-
-# 7. pycdc (no official binaries; build it once, then copy pycdc.exe into .\tools_bin)
-winget install Kitware.CMake
-winget install Microsoft.VisualStudio.2022.BuildTools   # "Desktop development with C++" workload
-git clone https://github.com/zrax/pycdc
-cmake -S pycdc -B pycdc\build
-cmake --build pycdc\build --config Release
-copy pycdc\build\Release\pycdc.exe tools_bin\
-
-# 8. Ghidra: download a release zip from
-#    https://github.com/NationalSecurityAgency/ghidra/releases and unzip it, then:
-setx GHIDRA_INSTALL_DIR "C:\Tools\ghidra_11.4_PUBLIC"
-# open a NEW terminal so the variable is visible, then verify:
-python aperio.py --doctor
+pip install PySide6          # GUI only; the CLI needs nothing
+python aperio.py --setup     # ~0.9 GB download, ~1.4 GB on disk
+python aperio.py --doctor    # every row should say OK
 ```
 
+| Component | Installed to | Used by |
+| --- | --- | --- |
+| Temurin JDK 25 | `tools_bin/jdk` | CFR, jadx, Ghidra |
+| Node.js 26 LTS + `@electron/asar` 4.3.1 | `tools_bin/node`, `tools_bin/asar` | ASAR |
+| CFR 0.152 | `tools_bin/cfr-0.152.jar` | Java |
+| jadx 1.5.6 | `tools_bin/jadx` | APK / DEX |
+| pyinstxtractor.py | `tools_bin/pyinstxtractor.py` | PyInstaller |
+| ilspycmd 11.2 (self-contained native exe, no .NET runtime) | `tools_bin/ilspycmd` | .NET |
+| pycdc (built from source with a temporary portable Zig, then deleted) | `tools_bin/pycdc` | `.pyc`, PyInstaller stage 2 |
+| Ghidra 12.2 | `tools_bin/ghidra_12.2_PUBLIC` | Go, native PE / ELF / Mach-O |
+
+`--setup` skips components that are already present; delete a folder to
+reinstall it. The Doctor dialog's "Download Portable Tool" button installs one
+plugin's tool plus the runtime it needs. Each tool's child process gets
+`JAVA_HOME` and `PATH` pointing at the bundled JDK / Node, so launchers such as
+`jadx.bat` and `analyzeHeadless.bat` never fall back to a system install.
+
+pycdc supports bytecode up to Python 3.13; `.pyc` files from newer Pythons
+decompile partially or not at all.
+
 Tool lookup order: `./tools_bin` (including `tools_bin/*/bin` and
-`tools_bin/ghidra*/support`), then `PATH`. Overrides: `GHIDRA_INSTALL_DIR`,
-`CFR_JAR`, `JAVA_HOME`, `APERIO_TOOLS_BIN`, `APERIO_CONFIG_DIR`.
+`tools_bin/ghidra*/support`), then `PATH`. The bundled JDK wins over
+`JAVA_HOME`. Overrides: `GHIDRA_INSTALL_DIR`, `CFR_JAR`, `APERIO_TOOLS_BIN`,
+`APERIO_CONFIG_DIR`.
 
 ## Tests
 
@@ -139,7 +130,7 @@ pycdc, Go, C compiler.
 * ilspycmd (needs a .NET SDK) and pycdc (needs a C++ toolchain). Their files are detected correctly and reported as `Skipped (Missing Tool: …)`.
 * jadx on a real APK/DEX. No `d8` or Android SDK was available to build one, so jadx was run live only on JVM bytecode.
 * `pyinstxtractor-ng`. The bundled-download `pyinstxtractor.py` path was the one tested.
-* Ghidra `analyzeHeadless` and `scripts/ExportDecompiled.java`. The script has not been compiled against a Ghidra install. Recent Ghidra releases also need JDK 21, and this host has JDK 17.
+* Ghidra `analyzeHeadless` and `scripts/ExportDecompiled.java`. The script has not been compiled against a Ghidra install. Recent Ghidra releases also need JDK 25, and this host has JDK 17.
 * Compiling C# samples: `create_samples.py` builds `Greeter.dll` only when a .NET SDK is present. Without one it uses a real runtime assembly copied from the installed .NET runtime.
 * POSIX `os.killpg` path: written, but only the Windows `taskkill /T` path was run.
 

@@ -50,7 +50,48 @@ def find_file(*patterns: str, env_var: str | None = None) -> Path | None:
     return None
 
 
+def _exe(name: str) -> str:
+    return name + ".exe" if IS_WINDOWS else name
+
+
+def bundled_java_home() -> Path | None:
+    """Portable JDK unpacked by --setup into ./tools_bin/jdk (or jdk-*)."""
+    if not TOOLS_BIN.is_dir():
+        return None
+    for root in sorted(TOOLS_BIN.glob("jdk*"), reverse=True):
+        if (root / "bin" / _exe("java")).is_file():
+            return root
+    return None
+
+
+def bundled_node() -> Path | None:
+    cand = TOOLS_BIN / "node" / _exe("node")
+    if not IS_WINDOWS and not cand.is_file():
+        cand = TOOLS_BIN / "node" / "bin" / "node"
+    return cand if cand.is_file() else None
+
+
+def tool_env() -> dict[str, str]:
+    """Environment for child processes: bundled JDK / Node come first so that
+    launchers (jadx.bat, analyzeHeadless.bat, npx) never need system installs."""
+    env = dict(os.environ)
+    extra: list[str] = []
+    jdk = bundled_java_home()
+    if jdk:
+        env["JAVA_HOME"] = str(jdk)
+        extra.append(str(jdk / "bin"))
+    node = bundled_node()
+    if node:
+        extra.append(str(node.parent))
+    if extra:
+        env["PATH"] = os.pathsep.join(extra + [env.get("PATH", "")])
+    return env
+
+
 def java() -> Path | None:
+    jdk = bundled_java_home()
+    if jdk:
+        return jdk / "bin" / _exe("java")
     java_home = os.environ.get("JAVA_HOME")
     if java_home:
         cand = Path(java_home) / "bin" / ("java.exe" if IS_WINDOWS else "java")
@@ -76,7 +117,7 @@ def ghidra_headless() -> Path | None:
 def probe_version(cmd: list[str], timeout: float = 15) -> str:
     """Run a version command synchronously (doctor only; never on the GUI thread)."""
     from . import procutil  # local import: procutil is independent of toolchain
-    res = procutil.run(cmd, timeout=timeout, cancel_event=threading.Event())
+    res = procutil.run(cmd, timeout=timeout, cancel_event=threading.Event(), env=tool_env())
     if res.timed_out:
         return "(version probe timed out)"
     for line in (res.stdout + "\n" + res.stderr).splitlines():

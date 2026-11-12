@@ -4,8 +4,20 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
+from ..config import TOOLS_BIN
 from ..core import detector, toolchain
 from .base import DecompilerPlugin, LogFn, PluginResult
+
+ASAR_PKG = "@electron/asar"
+ASAR_JS = TOOLS_BIN / "asar" / "node_modules" / "@electron" / "asar" / "bin" / "asar.mjs"
+
+
+def bundled_asar_js() -> Path | None:
+    """@electron/asar installed by --setup into ./tools_bin/asar (entry is .mjs or .js)."""
+    for cand in (ASAR_JS, ASAR_JS.with_suffix(".js")):
+        if cand.is_file():
+            return cand
+    return None
 
 
 class AsarPlugin(DecompilerPlugin):
@@ -15,7 +27,12 @@ class AsarPlugin(DecompilerPlugin):
     def detect(self, file_path: Path, header_bytes: bytes) -> bool:
         return detector.asar_header(header_bytes) is not None
 
+    portable = True
+
     def _base_cmd(self) -> list[str] | None:
+        node, js = toolchain.bundled_node() or toolchain.which("node"), bundled_asar_js()
+        if node and js:
+            return [str(node), str(js)]
         asar = toolchain.which("asar")
         if asar:
             return [str(asar)]
@@ -29,8 +46,8 @@ class AsarPlugin(DecompilerPlugin):
         return (True, " ".join(cmd)) if cmd else (False, "asar / npx not found")
 
     def install_hint(self) -> str:
-        return ("npm install -g @electron/asar   (or just install Node.js so `npx --yes "
-                "@electron/asar` works: winget install OpenJS.NodeJS.LTS)")
+        return ("python aperio.py --setup  (downloads portable Node.js and installs "
+                "@electron/asar into ./tools_bin)")
 
     def version(self) -> str:
         cmd = self._base_cmd()

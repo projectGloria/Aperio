@@ -38,6 +38,7 @@ class GhidraPlugin(DecompilerPlugin):
     name = "Ghidra"
     tool_key = "Ghidra"
     pool = "heavy"
+    portable = True
 
     def detect(self, file_path: Path, header_bytes: bytes) -> bool:
         return self.info(file_path).is_native
@@ -53,10 +54,8 @@ class GhidraPlugin(DecompilerPlugin):
         return True, str(h)
 
     def install_hint(self) -> str:
-        return ("Download Ghidra from https://github.com/NationalSecurityAgency/ghidra/releases, "
-                "unzip (e.g. C:\\Tools\\ghidra_11.x_PUBLIC), install JDK 21 "
-                "(winget install EclipseAdoptium.Temurin.21.JDK) and run: "
-                "setx GHIDRA_INSTALL_DIR C:\\Tools\\ghidra_11.x_PUBLIC")
+        return ("python aperio.py --setup  (portable Ghidra + JDK 25 into ./tools_bin; "
+                "or set GHIDRA_INSTALL_DIR to an existing install)")
 
     def version(self) -> str:
         return ghidra_version()

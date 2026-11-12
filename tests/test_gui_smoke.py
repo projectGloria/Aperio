@@ -87,7 +87,12 @@ class GuiSmokeTest(unittest.TestCase):
         self.win.format_filter.setText("Java Archive")
         self.app.processEvents()
         self.assertEqual(self.win.proxy.rowCount(), 40)
-        self.assertIn("[missing tool]", self.win.inspector.batch.toPlainText())
+        from aperio.plugins import all_plugins
+        batch_log = self.win.inspector.batch.toPlainText()
+        if all(p.is_available()[0] for p in all_plugins()):
+            self.assertNotIn("[missing tool]", batch_log)  # full ./tools_bin install
+        else:
+            self.assertIn("[missing tool]", batch_log)
 
     def test_doctor_dialog_populates_off_thread(self):
         self.win._open_doctor()

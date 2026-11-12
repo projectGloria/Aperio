@@ -8,9 +8,6 @@ from pathlib import Path
 from ..core import detector, toolchain
 from .base import DecompilerPlugin, LogFn, PluginResult
 
-JADX_VERSION = "1.5.1"
-JADX_URL = (f"https://github.com/skylot/jadx/releases/download/v{JADX_VERSION}/"
-            f"jadx-{JADX_VERSION}.zip")
 
 
 def find_jadx() -> Path | None:
@@ -38,8 +35,7 @@ class AndroidPlugin(DecompilerPlugin):
         return True, str(p)
 
     def install_hint(self) -> str:
-        return (f"python aperio.py --setup  (downloads portable jadx {JADX_VERSION} into "
-                f"./tools_bin; needs Java 11+: winget install EclipseAdoptium.Temurin.21.JDK)")
+        return "python aperio.py --setup  (portable jadx + JDK 25 into ./tools_bin)"
 
     def version(self) -> str:
         p = find_jadx()
